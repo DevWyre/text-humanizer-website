@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevWyre's Humanizer, Text Refinement</title>
+    <meta name="description" content="DevWyre Humanize converts AI-generated text into natural, human-like content. Remove AI markers, fix formatting, and improve authenticity.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='46' fill='%232D3748'/><text x='50' y='68' text-anchor='middle' font-family='Inter' font-size='62' fill='white'>D</text></svg>">
+</head>
+<body>
+    <!-- Application Header -->
+    <header class="app-header">
+        <div class="container header-content">
+            <div class="header-brand">
+                <div class="brand-logo" aria-label="DevWyre Logo"></div>
+                <div class="header-title">
+                    <p class="brand-subtitle">A free professional text refinement tool </p>
+                </div>
+                <div class="stats-bar" id="statsBar">
+                    <div class="stat-item">
+                        <span class="stat-label">Characters:</span>
+                        <span class="stat-value" id="charCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Changes:</span>
+                        <span class="stat-value" id="changeCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Status:</span>
+                        <span class="stat-value" id="status">Ready</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <div class="container">
+            <div class="app-shell">
+                <!-- Sidebar: Branding + Options + Action -->
+                <aside class="sidebar">
+                    <div class="sidebar-section sidebar-section--options">
+                        <h3 class="options-title">Options</h3>
+                        <p class="options-subtitle">Choose what to clean up</p>
+                        <div class="options-grid">
+                            <label class="option-item">
+                                <input type="checkbox" id="transformHidden" checked>
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Remove Hidden Symbols</span>
+                                    <span class="option-description">Removes invisible Unicode characters</span>
+                                </div>
+                            </label>
+
+                            <label class="option-item">
+                                <input type="checkbox" id="transformTrailingWhitespace" checked>
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Fix Trailing Whitespace</span>
+                                    <span class="option-description">Removes spaces at the end of lines</span>
+                                </div>
+                            </label>
+
+                            <label class="option-item">
+                                <input type="checkbox" id="transformNbs" checked>
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Replace NBSP</span>
+                                    <span class="option-description">Convert special spaces to normal spaces</span>
+                                </div>
+                            </label>
+
+                            <label class="option-item">
+                                <input type="checkbox" id="transformDashes" checked>
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Convert Dashes</span>
+                                    <span class="option-description">Replace em-dashes with hyphens</span>
+                                </div>
+                            </label>
+
+                            <label class="option-item">
+                                <input type="checkbox" id="transformQuotes" checked>
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Normalize Quotes</span>
+                                    <span class="option-description">Converts curly quotes (“ ”) to straight ones (\" \")</span>
+                                </div>
+                            </label>
+
+                            <label class="option-item">
+                                <input type="checkbox" id="transformOther" checked>
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Replace Ellipsis</span>
+                                    <span class="option-description">Changes ellipsis (…) to three dots (...)</span>
+                                </div>
+                            </label>
+                            
+                            <label class="option-item">
+                                <input type="checkbox" id="naturalVariations" checked>
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Natural Variations</span>
+                                    <span class="option-description">Adds contractions and natural phrasing</span>
+                                </div>
+                            </label>
+
+                            <label class="option-item">
+                                <input type="checkbox" id="spinWords">
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Word Spinning</span>
+                                    <span class="option-description">Swaps some words for safe synonyms</span>
+                                </div>
+                            </label>
+
+                            <label class="option-item option-item--slider" id="spinIntensityRow">
+                                <div class="option-content option-content--full">
+                                    <div class="spin-intensity-header">
+                                        <span class="option-label">Spin Intensity</span>
+                                        <span class="option-description" id="spinIntensityValue">25%</span>
+                                    </div>
+                                    <input type="range" id="spinIntensity" min="0" max="100" value="25" step="5" class="spin-intensity-slider" />
+                                </div>
+                            </label>
+
+                            <label class="option-item">
+                                <input type="checkbox" id="keyboardOnly">
+                                <span class="option-checkbox"></span>
+                                <div class="option-content">
+                                    <span class="option-label">Keyboard-only</span>
+                                    <span class="option-description">Remove non-typable symbols</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section sidebar-action">
+                        <button class="humanize-btn" id="humanizeBtn">
+                            <span class="btn-icon">⟲</span>
+                            <span class="btn-text">Start</span>
+                            <div class="btn-loader" id="btnLoader"></div>
+                        </button>
+                        <label class="auto-process-toggle">
+                            <input type="checkbox" id="autoProcess" checked>
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Auto-process on input</span>
+                        </label>
+                    </div>
+                </aside>
+
+                <!-- Workspace: Stats + Editors -->
+                <section class="workspace">
+    
+
+                    <div class="editor-stack">
+                        <div class="text-area-container">
+                            <div class="text-area-header">
+                                <h2 class="text-area-title">Input</h2>
+                                <div class="text-area-actions">
+                                    <button class="action-btn" id="clearInput" title="Clear input">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                                            <line x1="10" y1="11" x2="10" y2="17"/>
+                                            <line x1="14" y1="11" x2="14" y2="17"/>
+                                        </svg>
+                                    </button>
+                                    <button class="action-btn" id="pasteInput" title="Paste from clipboard">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="text-area-wrapper">
+                                <textarea id="inputText" class="text-area" placeholder="Paste your AI-generated text here..." spellcheck="false"></textarea>
+                                <div class="text-area-footer">
+                                    <span class="char-counter" id="inputCharCount">0 characters</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="text-area-container">
+                            <div class="text-area-header">
+                                <h2 class="text-area-title">Output</h2>
+                                <div class="text-area-actions">
+                                    <button class="action-btn" id="copyResult" title="Copy to clipboard">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                                        </svg>
+                                    </button>
+                                    <button class="action-btn" id="downloadResult" title="Download as text file">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                                            <polyline points="7,10 12,15 17,10"/>
+                                            <line x1="12" y1="15" x2="12" y2="3"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="text-area-wrapper">
+                                <textarea id="outputText" class="text-area" placeholder="Your humanized text will appear here..." readonly spellcheck="false"></textarea>
+                                <div class="text-area-footer">
+                                    <span class="char-counter" id="outputCharCount">0 characters</span>
+                                    <span class="changes-indicator" id="changesIndicator"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <p class="footer-text">
+                    © <span id="year"></span> DevWyre · <a href="https://devwyre.com/" target="_blank" rel="noopener">devwyre.com</a> · <a href="https://flutterwave.com/store/devwyredonations" target="_blank" rel="noopener">Donate</a>
+                </p>
+                <p class="footer-note">
+                    DevWyre's Humanizer, Professional text refinement for teams
+                </p>
+                <p class="footer-note" id="openSourceNote">
+                    Open source on GitHub: <a href="#" id="githubLink" target="_blank" rel="noopener">(paste link)</a>
+                </p>
+            </div>
+        </div>
+    </footer>
+
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Scripts -->
+    <script src="humanize-lib-standalone.js"></script>
+    <script src="script.js"></script>
+    <script>
+      document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>
