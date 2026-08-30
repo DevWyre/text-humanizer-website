@@ -13,7 +13,10 @@
 
         // Natural variations (phrase-level + contractions)
         naturalVariations: true,
-        naturalIntensity: 0.35, // 0..1
+        naturalIntensity: 0.6, // 0..1
+
+        // Aggressive steganography / text-watermark stripping
+        removeWatermarks: false,
 
         // Word spinning (offline)
         spinWords: false,
@@ -27,43 +30,102 @@
         '\u2067', '\u2068', '\u2069', '\uFEFF'
     ].join('');
 
+    // Unicode ranges used by AI text watermarking / steganography to embed
+    // invisible fingerprints in text. Opt-in via `removeWatermarks`.
+    //   1. Variation selectors        (U+FE00–U+FE0F) — primary LLM watermark carrier
+    //   2. Invisible format chars     (U+061C, U+2061–U+2064, U+FFF9–U+FFFB)
+    //   3. Inactive tag characters    (U+E0000–U+E007F)
+    //   4. Combining diacritical marks(U+0300–U+036F) — hide bits on base letters
+    const WATERMARK_SYMBOLS = [
+        '\u0300-\u036F',
+        '\u061C',
+        '\u2061-\u2064',
+        '\u206A-\u206F',
+        '\uFE00-\uFE0F',
+        '\uFFF9-\uFFFB',
+        '\u{E0000}-\u{E007F}'
+    ].join('');
+
     // Conservative phrase rewrites to reduce “AI cadence” while preserving meaning.
-    // Applied probabilistically via naturalIntensity.
+    // Applied probabilistically per occurrence via naturalIntensity.
     const NATURAL_PHRASES = [
-        // marketing fluff softeners
-        { re: /\bIn today's (?:fast-?paced|rapidly evolving) world\b/gi, to: ["These days", "Nowadays"] },
-        { re: /\bIt is important to note that\b/gi, to: ["Worth noting:", "Keep in mind:"] },
-        { re: /\bIn conclusion\b/gi, to: ["Bottom line", "To wrap up"] },
-        { re: /\bFurthermore\b/gi, to: ["Also", "On top of that"] },
-        { re: /\bHowever\b/gi, to: ["That said", "Still"] },
-        { re: /\bTherefore\b/gi, to: ["So", "As a result"] },
-        { re: /\bAdditionally\b/gi, to: ["Also", "Plus"] },
-        { re: /\bMoreover\b/gi, to: ["More importantly", "And"] },
+        // ---- "AI tone" phrase patterns ----
+        { re: /\bIn today's (?:fast-?paced|rapidly evolving|digital) world\b/gi, to: ["These days", "Nowadays", "Right now"] },
+        { re: /\bIt is important to note that\b/gi, to: ["Worth noting:", "Keep in mind:", "One thing to know:"] },
+        { re: /\bIt (?:should|is going to) be noted that\b/gi, to: ["Notably,", "One note:", "Worth saying:"] },
+        { re: /\bThis means that\b/gi, to: ["So", "In other words,", "Bottom line:"] },
+        { re: /\bIn conclusion\b/gi, to: ["Bottom line", "To wrap up", "In short"] },
+        { re: /\bIn summary\b/gi, to: ["In short", "Summing up"] },
+        { re: /\bAs (?:previously|already) mentioned\b/gi, to: ["As I said earlier", "Like I mentioned"] },
+        { re: /\bPlease note that\b/gi, to: ["Note that", "Just so you know,"] },
+        { re: /\bFor your reference\b/gi, to: ["For reference"] },
+        { re: /\bThere is a (?:significant|growing|clear) need for\b/gi, to: ["There's a real need for", "We could really use"] },
+
+        // ---- sentence connectors / openers ----
+        { re: /\bFurthermore\b/gi, to: ["Also", "On top of that", "Plus,"] },
+        { re: /\bHowever\b/gi, to: ["That said", "Still", "But"] },
+        { re: /\bTherefore\b/gi, to: ["So", "As a result", "That's why"] },
+        { re: /\bAdditionally\b/gi, to: ["Also", "Plus,", "And"] },
+        { re: /\bMoreover\b/gi, to: ["More importantly,", "And", "On top of that"] },
+        { re: /\bOverall\b/gi, to: ["All in all", "On balance", "Looking at the big picture,"] },
+        { re: /\bAs a matter of fact\b/gi, to: ["In fact"] },
+        { re: /\bin order to\b/gi, to: ["to"] },
+        { re: /\b(?:There are|There is) a number of\b/gi, to: ["There are several", "There are a few"] },
+
+        // ---- marketing-hype verbs & nouns ----
         { re: /\butilize\b/gi, to: ["use"] },
-        { re: /\bleverage\b/gi, to: ["use", "tap into"] },
-        { re: /\bstate-of-the-art\b/gi, to: ["modern", "up-to-date"] },
-        { re: /\bcutting-edge\b/gi, to: ["modern", "advanced"] },
+        { re: /\bleverage\b/gi, to: ["use", "tap into", "put to work"] },
+        { re: /\bstate-of-the-art\b/gi, to: ["modern", "up-to-date", "latest"] },
+        { re: /\bcutting-edge\b/gi, to: ["modern", "advanced", "new"] },
         { re: /\bmeticulously\b/gi, to: ["carefully"] },
         { re: /\bunparalleled\b/gi, to: ["strong", "standout"] },
         { re: /\bcomprehensive\b/gi, to: ["complete", "full"] },
-        { re: /\bseamless\b/gi, to: ["smooth", "easy"] },
+        { re: /\bseamless\b/gi, to: ["smooth", "easy", "effortless"] },
+        { re: /\bseamlessly\b/gi, to: ["smoothly", "easily"] },
         { re: /\bstreamline\b/gi, to: ["simplify", "speed up"] },
+        { re: /\brevolutionize\b/gi, to: ["change", "shake up", "redo"] },
+        { re: /\bgame-?changing\b/gi, to: ["huge", "major", "big"] },
+        { re: /\bgame-?changer\b/gi, to: ["big deal", "turning point"] },
+        { re: /\bdelve\b/gi, to: ["dig into", "get into", "look into"] },
+        { re: /\btapestry\b/gi, to: ["mix", "blend", "range"] },
+        { re: /\bunlock\b/gi, to: ["open up", "get to", "tap into"] },
+        { re: /\bempower\b/gi, to: ["help", "make it easier for"] },
+        { re: /\bharness\b/gi, to: ["use", "tap"] },
+        { re: /\bunderscore\b/gi, to: ["show", "highlight", "point to"] },
+        { re: /\brobust\b/gi, to: ["solid", "strong", "dependable"] },
+        { re: /\bholistic\b/gi, to: ["big-picture", "all-around"] },
+        { re: /\bin the realm of\b/gi, to: ["when it comes to", "around"] },
+        { re: /\bplays a (?:crucial|key|vital|pivotal) role\b/gi, to: ["is a big part of", "matters", "counts"] },
+        { re: /\ba testament to\b/gi, to: ["proof of", "a sign of"] },
+        { re: /\bfacilitate\b/gi, to: ["help with", "make easier"] },
+        { re: /\bamplify\b/gi, to: ["boost", "strengthen"] },
+        { re: /\belevate\b/gi, to: ["boost", "lift", "raise"] },
+        { re: /\benhance\b/gi, to: ["improve", "boost"] },
+        { re: /\boptimize\b/gi, to: ["improve", "tune up", "get the most out of"] },
+        { re: /\boptimal\b/gi, to: ["best", "ideal"] },
+        { re: /\bimpactful\b/gi, to: ["powerful", "strong", "worthwhile"] },
+        { re: /\bfoster\b/gi, to: ["encourage", "build"] },
+        { re: /\btransformative\b/gi, to: ["major", "big"] },
+        { re: /\bmeaningful\b/gi, to: ["real", "worthwhile"] },
+        { re: /\bengaging\b/gi, to: ["interesting", "fun"] },
+        { re: /\bvaluable insights\b/gi, to: ["useful takeaways", "handy lessons"] },
+        { re: /\blearnings\b/gi, to: ["lessons"] },
+        { re: /\bjourney\b/gi, to: ["experience", "process"] },
+        { re: /\buser-friendly\b/gi, to: ["easy to use"] },
+        { re: /\bintuitive\b/gi, to: ["easy to use", "natural"] },
+        { re: /\bbest-in-class\b/gi, to: ["top-notch", "leading"] },
+        { re: /\bworld-class\b/gi, to: ["top-notch", "excellent"] },
+        { re: /\bever-?evolving\b/gi, to: ["changing", "fast-moving"] },
+        { re: /\binnovative solution\b/gi, to: ["new approach", "fresh idea"] },
+        { re: /\bexceed your expectations\b/gi, to: ["beat what you'd expect", "impress you"] },
+        { re: /\bbusiness processes\b/gi, to: ["processes", "how you work"] },
         { re: /\bdeliver (?:unparalleled|exceptional) results\b/gi, to: ["get strong results", "deliver better results"] },
-        { re: /\b(We are|We're) thrilled to announce that\b/gi, to: ["Quick update:", "Good news:"] },
+        { re: /\b(We are|We're) thrilled to announce that\b/gi, to: ["Quick update:", "Good news:", "Excited to share:"] },
         { re: /\bThis revolutionary\b/gi, to: ["This new", "This updated"] },
         { re: /\bthe way you approach\b/gi, to: ["how you handle", "how you think about"] },
-
-        // filler reducers
-        { re: /\bIt (?:should|is going to) be noted that\b/gi, to: ["Notably,"] },
-        { re: /\bThis means that\b/gi, to: ["So"] },
-        { re: /\bAs a matter of fact\b/gi, to: ["In fact"] },
-        { re: /\bin order to\b/gi, to: ["to"] },
-
-        // sentence openers
-        { re: /\bOverall\b/gi, to: ["All in all", "On balance"] },
     ];
 
-    // Contractions (applied with naturalIntensity)
+    // Contractions (applied per occurrence with naturalIntensity)
     const CONTRACTIONS = [
         { re: /\bdo not\b/gi, to: "don't" },
         { re: /\bdoes not\b/gi, to: "doesn't" },
@@ -74,20 +136,33 @@
         { re: /\bshould not\b/gi, to: "shouldn't" },
         { re: /\bwould not\b/gi, to: "wouldn't" },
         { re: /\bcould not\b/gi, to: "couldn't" },
-        { re: /\bit is\b/gi, to: "it's" },
-        { re: /\bthat is\b/gi, to: "that's" },
-        { re: /\bthere is\b/gi, to: "there's" },
-        { re: /\bwe are\b/gi, to: "we're" },
-        { re: /\bthey are\b/gi, to: "they're" },
-        { re: /\byou are\b/gi, to: "you're" },
+        { re: /\bare not\b/gi, to: "aren't" },
+        { re: /\bwas not\b/gi, to: "wasn't" },
+        { re: /\bwere not\b/gi, to: "weren't" },
+        { re: /\bhas not\b/gi, to: "hasn't" },
+        { re: /\bhave not\b/gi, to: "haven't" },
+        { re: /\bwould have\b/gi, to: "would've" },
+        { re: /\bcould have\b/gi, to: "could've" },
+        { re: /\bshould have\b/gi, to: "should've" },
         { re: /\bI am\b/gi, to: "I'm" },
         { re: /\bI have\b/gi, to: "I've" },
-        { re: /\bwe have\b/gi, to: "we've" },
-        { re: /\bthey have\b/gi, to: "they've" },
         { re: /\bI will\b/gi, to: "I'll" },
-        { re: /\bwe will\b/gi, to: "we'll" },
+        { re: /\bI would\b/gi, to: "I'd" },
+        { re: /\byou are\b/gi, to: "you're" },
         { re: /\byou will\b/gi, to: "you'll" },
+        { re: /\byou would\b/gi, to: "you'd" },
+        { re: /\bwe are\b/gi, to: "we're" },
+        { re: /\bwe have\b/gi, to: "we've" },
+        { re: /\bwe will\b/gi, to: "we'll" },
+        { re: /\bwe would\b/gi, to: "we'd" },
+        { re: /\bthey are\b/gi, to: "they're" },
+        { re: /\bthey have\b/gi, to: "they've" },
         { re: /\bthey will\b/gi, to: "they'll" },
+        { re: /\bthey would\b/gi, to: "they'd" },
+        { re: /\bit is\b/gi, to: "it's" },
+        { re: /\bit will\b/gi, to: "it'll" },
+        { re: /\bthat is\b/gi, to: "that's" },
+        { re: /\bthere is\b/gi, to: "there's" },
     ];
 
     // Small offline synonym map (expanded, still conservative)
@@ -215,41 +290,52 @@
         let out = text;
         let count = 0;
 
-        // Phrase rewrites
+        // Phrase rewrites — every rule is *considered*; each occurrence is
+        // rewritten with probability `intensity` so the result reads varied
+        // but clearly more human at sane default intensities.
         for (const rule of NATURAL_PHRASES) {
-            if (rng() > intensity) continue;
-            const before = out;
             out = out.replace(rule.re, (m) => {
-                // Keep casing roughly: if match starts uppercase, capitalize replacement.
+                if (rng() > intensity) return m;
                 const repl = pick(rng, rule.to);
+                count++;
                 if (m && m[0] === m[0].toUpperCase()) {
                     return repl[0].toUpperCase() + repl.slice(1);
                 }
                 return repl;
             });
-            if (out !== before) {
-                // approximate count by number of matches
-                const matches = before.match(rule.re);
-                if (matches) count += matches.length;
-            }
         }
 
         // Contractions
         for (const c of CONTRACTIONS) {
-            if (rng() > intensity) continue;
-            const before = out;
-            out = out.replace(c.re, (m) => matchCasing(m, c.to));
-            if (out !== before) {
-                const matches = before.match(c.re);
-                if (matches) count += matches.length;
-            }
+            out = out.replace(c.re, (m) => {
+                if (rng() > intensity) return m;
+                count++;
+                return matchCasing(m, c.to);
+            });
         }
 
-        // Light punctuation humanization: replace double spaces, add occasional em-dash spacing normalization
+        // Collapse doubled spaces left behind by rewrites
+        const beforeSpace = out;
+        out = out.replace(/ {2,}/g, ' ');
+        if (out !== beforeSpace) {
+            const matches = beforeSpace.match(/ {2,}/g);
+            if (matches) count += matches.length;
+        }
+
+        // Deflate hype punctuation (!!), a strong machine-written tell
+        const beforeHype = out;
+        out = out.replace(/!{2,}/g, '!');
+        if (out !== beforeHype) {
+            const matches = beforeHype.match(/!{2,}/g);
+            if (matches) count += matches.length;
+        }
+
+        // Fix doubled commas left when a rewrite replaces a connector that sat
+// right before another clause (e.g. "This means that, ").
         const beforePunct = out;
-        out = out.replace(/\s{2,}/g, ' ');
+        out = out.replace(/,{2,}/g, ',');
         if (out !== beforePunct) {
-            const matches = beforePunct.match(/\s{2,}/g);
+            const matches = beforePunct.match(/,{2,}/g);
             if (matches) count += matches.length;
         }
 
@@ -373,6 +459,16 @@
             if (matches) {
                 count += matches.length;
                 resultText = resultText.replace(keyboardOnlyRegex, '');
+            }
+        }
+
+        // Hidden watermark removal (steganography / AI fingerprint stripping)
+        if (useOptions.removeWatermarks) {
+            const watermarkRegex = new RegExp(`[${WATERMARK_SYMBOLS}]`, 'gu');
+            const matches = resultText.match(watermarkRegex);
+            if (matches) {
+                count += matches.length;
+                resultText = resultText.replace(watermarkRegex, '');
             }
         }
 

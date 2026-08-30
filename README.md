@@ -1,71 +1,74 @@
-# DevWyre Humanize — Enterprise Text Refinement
+# DevWyre Humanizer
 
-A modern, responsive web application that converts AI-generated text into natural, human-like content by removing common AI markers and formatting inconsistencies. Built for teams that require clean, readable copy.
+A modern, offline-first web app that converts AI-generated text into natural, human-sounding copy. Strip AI markers, fix formatting, add contractions and natural phrasing — all in the browser, nothing is uploaded.
 
-Website: https://devwyre.com/
-Donate: https://flutterwave.com/store/devwyredonations
+🖤 [devwyre.com](https://devwyre.com/) · 💚 [Donate](https://flutterwave.com/store/devwyredonations) · ⭐ [GitHub](https://github.com/DevWyre/text-humanizer-website)
 
-## Product Highlights
+## Features
 
-- Real-time in-browser processing (no server round-trips)
-- Clean, enterprise-grade UI with responsive layout
-- Keyboard shortcuts and helpful toasts
-- Works entirely offline after the page loads
+- **100% offline** — everything runs client-side via `humanize-lib-standalone.js`
+- **Word-level diff view** — "Tidy" mode shows exactly what changed, with added/removed words highlighted
+- **Deterministic output** — the same input always produces the same result (no flicker)
+- **Auto-process** — live humanizing while you type, with debounce
+- **Dark & light themes** — manual toggle, remembered, respects system preference
+- **Settings persistence** — options and draft text survive refreshes (`localStorage`)
+- **Undo** — step back through the last 20 results
+- **Drag & drop** — drop a `.txt`/`.md` file straight onto the Input panel
+- **Import / export** — paste, load files, copy, and download `.txt`
+- **Live stats** — characters, word count, reading time, and change count
+- **Shortcuts** — `Ctrl/⌘+Enter` humanize · `Ctrl/⌘+K` clear · `Ctrl/⌘+Shift+D` download
 
 ## Transform Options
 
-- Remove Hidden Symbols: Eliminates invisible Unicode characters
-- Fix Trailing Whitespace: Removes spaces at line ends
-- Replace Non-Breaking Spaces: Converts special spaces to regular ones
-- Convert Fancy Dashes: Replaces em-dashes (—) with regular dashes (-)
-- Normalize Quotes: Converts curly quotes (“ ”) to straight ones (" ")
-- Replace Ellipsis: Changes ellipsis (…) to three dots (...)
-- Natural Variations: Adds contractions and natural phrasing
-- Word Spinning (optional): Swaps some words for safe synonyms, with adjustable intensity
-- Keyboard-Only Characters: Removes all non-keyboard typeable symbols
+**Cleanup tab**
+- Hidden symbols — strips invisible Unicode characters
+- **Hidden watermarks** — removes variation selectors, invisible format chars, and combining diacritics used to fingerprint AI text (opt-in)
+- Trailing whitespace — removes spaces at line ends
+- Non-breaking spaces — converted to regular spaces
+- Fancy dashes — em/en dashes become hyphens
+- Curly quotes — smart quotes/ellipses normalized to straight marks
+- Ellipsis — `…` becomes `...`
+- Keyboard-only — removes all non-typable symbols
+
+**Style tab**
+- Natural variations — contractions and human phrasing (intensity slider)
+- Word spinning — swaps words for safe synonyms (intensity slider)
 
 ## Getting Started
 
-1. Open `index.html` in your browser.
-2. Paste your text into the Input panel.
-3. Click "Start" or enable auto-processing for real-time conversion.
+Since this is a static site, any static server works:
 
-## Insert Your Logo
+```bash
+# Python
+python -m http.server 8000   # then open http://localhost:8000
 
-A dedicated, easily replaceable logo block is provided in the header.
+# or Node
+npx serve
+```
 
-Option A — Set background image via CSS (recommended):
-- Open `styles.css` and locate the `.brand-logo` class.
-- Add a background image:
+Or just open `index.html` directly in your browser.
 
-  .brand-logo {
-      background-image: url('images/your-logo.png');
-      background-size: cover;        /* or contain */
-      background-position: center;   /* adjust as needed */
-  }
+1. Paste your text into the Input panel.
+2. Hit **Humanize text** (or rely on auto-process).
+3. Review changes in the Tidy view, then copy or download.
 
-Option B — Replace the placeholder element in HTML:
-- Open `index.html` and find:
-  <div class="brand-logo" aria-label="DevWyre Logo"></div>
-- Replace that element with your own `<img>` tag:
+## Project Structure
 
-  <img class="brand-logo" src="images/your-logo.png" alt="Your Logo" />
-
-The `.brand-logo` class defines sizing and rounded corners for a polished look. Adjust dimensions in CSS if required.
+```
+index.html                       # Layout, panels, settings tabs
+styles.css                       # Design system (vars, dark/light themes, components)
+script.js                        # App: diff, stats, persistence, toasts, shortcuts
+humanize-lib-standalone.js       # Core text-humanizing engine (humanizeString)
+```
 
 ## Technology Stack
 
-- Frontend: HTML5, CSS3, JavaScript (ES6+)
-- Styling: CSS Grid, Flexbox, CSS Variables
-- Typography: Inter + JetBrains Mono
-- Processing: In-browser transformation via `humanize-lib-standalone.js`
+- Vanilla HTML5 / CSS3 / JavaScript (ES6+) — no build step, no dependencies
+- CSS custom properties power the dual-theme design system
+- `Inter` + `JetBrains Mono` typography via Google Fonts
+- LCS-based word diffing for the change-highlight view
 
 ## Notes
 
-- All functionality remains client-side. No external build tools are required.
-- The UI has been rebranded for a professional DevWyre experience.
-
-## Support DevWyre
-
-- Website: https://devwyre.com/
-- Donate: https://flutterwave.com/store/devwyredonations
+- All functionality stays client-side. No telemetry, no uploads.
+- Output stays deterministic for identical input + settings, so auto-processing won't flicker.

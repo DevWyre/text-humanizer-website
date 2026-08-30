@@ -1,518 +1,726 @@
-// DevWyre's Humanizer, Main JavaScript File
-class TextHumanizer {
-    constructor() {
-        this.elements = this.initializeElements();
-        this.state = {
-            autoProcess: true,
-            isProcessing: false,
-            debounceTimer: null
-        };
-        
-        this.initializeEventListeners();
-        this.updateStats();
-        this.initializeSpinUI();
-        
-        // Check if humanize-ai-lib is available
-        if (typeof humanizeString === 'undefined') {
-            this.showToast('Library not loaded. Please refresh the page.', 'error');
-            console.error('humanize-ai-lib not found');
-        }
-    }
-    
-    initializeElements() {
-        return {
-            // Text areas
-            inputText: document.getElementById('inputText'),
-            outputText: document.getElementById('outputText'),
-            
-            // Buttons
-            humanizeBtn: document.getElementById('humanizeBtn'),
-            clearInput: document.getElementById('clearInput'),
-            pasteInput: document.getElementById('pasteInput'),
-            copyResult: document.getElementById('copyResult'),
-            downloadResult: document.getElementById('downloadResult'),
-            
-            // Options
-            transformHidden: document.getElementById('transformHidden'),
-            transformTrailingWhitespace: document.getElementById('transformTrailingWhitespace'),
-            transformNbs: document.getElementById('transformNbs'),
-            transformDashes: document.getElementById('transformDashes'),
-            transformQuotes: document.getElementById('transformQuotes'),
-            transformOther: document.getElementById('transformOther'),
-            naturalVariations: document.getElementById('naturalVariations'),
-            keyboardOnly: document.getElementById('keyboardOnly'),
-            autoProcess: document.getElementById('autoProcess'),
+/* ==========================================================================
+   DevWyre Humanizer — Application
+   Plain-ES6, no build step. Core processing runs offline via
+   humanize-lib-standalone.js (humanizeString).
+   ========================================================================== */
 
-            // New: Spinning
-            spinWords: document.getElementById('spinWords'),
-            spinIntensity: document.getElementById('spinIntensity'),
-            spinIntensityValue: document.getElementById('spinIntensityValue'),
-            spinIntensityRow: document.getElementById('spinIntensityRow'),
-            
-            // Stats and indicators
-            charCount: document.getElementById('charCount'),
-            changeCount: document.getElementById('changeCount'),
-            status: document.getElementById('status'),
-            inputCharCount: document.getElementById('inputCharCount'),
-            outputCharCount: document.getElementById('outputCharCount'),
-            changesIndicator: document.getElementById('changesIndicator'),
-            btnLoader: document.getElementById('btnLoader'),
-            
-            // Containers
-            toastContainer: document.getElementById('toastContainer')
-        };
-    }
+'use strict';
 
-    initializeSpinUI() {
-        if (!this.elements.spinWords || !this.elements.spinIntensity || !this.elements.spinIntensityValue || !this.elements.spinIntensityRow) {
-            return;
-        }
+/* ----------------------------- Constants --------------------------------- */
 
-        const updateSpinIntensityLabel = () => {
-            const pct = Number(this.elements.spinIntensity.value || 0);
-            this.elements.spinIntensityValue.textContent = `${pct}%`;
-        };
+const STORE = {
+    settings: 'dh_settings_v2',
+    theme: 'dh_theme',
+    draft: 'dh_draft_v1',
+};
 
-        const updateSpinRowVisibility = () => {
-            const enabled = !!this.elements.spinWords.checked;
-            this.elements.spinIntensityRow.style.display = enabled ? '' : 'none';
-        };
+const DEFAULT_SETTINGS = {
+    transformHidden: true,
+    transformTrailingWhitespace: true,
+    transformNbs: true,
+    transformDashes: true,
+    transformQuotes: true,
+    transformOther: true,
+    keyboardOnly: false,
+    naturalVariations: true,
+    naturalIntensity: 0.6,
+    spinWords: false,
+    spinIntensity: 0.25,
+    removeWatermarks: false,
+    autoProcess: true,
+    view: 'tidy',
+};
 
-        updateSpinIntensityLabel();
-        updateSpinRowVisibility();
+const CHECKBOX_MAP = {
+    optHidden: 'transformHidden',
+    optWatermark: 'removeWatermarks',
+    optWhitespace: 'transformTrailingWhitespace',
+    optNbsp: 'transformNbs',
+    optDashes: 'transformDashes',
+    optQuotes: 'transformQuotes',
+    optEllipsis: 'transformOther',
+    optKeyboard: 'keyboardOnly',
+    optNatural: 'naturalVariations',
+    optSpin: 'spinWords',
+};
 
-        this.elements.spinWords.addEventListener('change', () => {
-            updateSpinRowVisibility();
-        });
+const MAX_HISTORY = 20;
 
-        this.elements.spinIntensity.addEventListener('input', () => {
-            updateSpinIntensityLabel();
-        });
-    }
-    
-    initializeEventListeners() {
-        // Text input events
-        this.elements.inputText.addEventListener('input', () => {
-            this.updateStats();
-            if (this.state.autoProcess) {
-                this.debounceProcess();
-            }
-        });
-        
-        this.elements.inputText.addEventListener('paste', () => {
-            // Small delay to allow paste to complete
-            setTimeout(() => {
-                this.updateStats();
-                if (this.state.autoProcess) {
-                    this.debounceProcess();
-                }
-            }, 10);
-        });
-        
-        // Button events
-        this.elements.humanizeBtn.addEventListener('click', () => this.processText());
-        this.elements.clearInput.addEventListener('click', () => this.clearInput());
-        this.elements.pasteInput.addEventListener('click', () => this.pasteFromClipboard());
-        this.elements.copyResult.addEventListener('click', () => this.copyToClipboard());
-        this.elements.downloadResult.addEventListener('click', () => this.downloadResult());
-        
-        // Auto-process toggle
-        this.elements.autoProcess.addEventListener('change', (e) => {
-            this.state.autoProcess = e.target.checked;
-            this.updateStatus(this.state.autoProcess ? 'Auto-processing enabled' : 'Manual processing');
-            
-            if (this.state.autoProcess && this.elements.inputText.value.trim()) {
-                this.debounceProcess();
-            }
-        });
-        
-        // Option changes
-        const optionElements = [
-            this.elements.transformHidden,
-            this.elements.transformTrailingWhitespace,
-            this.elements.transformNbs,
-            this.elements.transformDashes,
-            this.elements.transformQuotes,
-            this.elements.transformOther,
-            this.elements.naturalVariations,
-            this.elements.spinWords,
-            this.elements.spinIntensity,
-            this.elements.keyboardOnly
-        ].filter(Boolean);
-        
-        optionElements.forEach(element => {
-            element.addEventListener('change', () => {
-                if (this.elements.inputText.value.trim()) {
-                    if (this.state.autoProcess) {
-                        this.debounceProcess();
-                    } else {
-                        this.processText();
-                    }
-                }
-            });
-        });
+const ICONS = {
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="7.5" x2="12.01" y2="7.5"/></svg>',
+};
 
-        // Range should re-process while sliding
-        if (this.elements.spinIntensity) {
-            this.elements.spinIntensity.addEventListener('input', () => {
-                if (this.elements.inputText.value.trim()) {
-                    if (this.state.autoProcess) {
-                        this.debounceProcess();
-                    }
-                }
-            });
-        }
-        
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if (e.ctrlKey || e.metaKey) {
-                switch (e.key) {
-                    case 'Enter':
-                        e.preventDefault();
-                        this.processText();
-                        break;
-                    case 'k':
-                        e.preventDefault();
-                        this.clearInput();
-                        break;
-                }
-            }
-        });
-    }
-    
-    debounceProcess() {
-        clearTimeout(this.state.debounceTimer);
-        this.state.debounceTimer = setTimeout(() => {
-            this.processText();
-        }, 500);
-    }
-    
-    async processText() {
-        const inputText = this.elements.inputText.value.trim();
-        
-        if (!inputText) {
-            this.showToast('Please enter some text to humanize', 'error');
-            return;
-        }
-        
-        if (this.state.isProcessing) {
-            return;
-        }
-        
-        this.state.isProcessing = true;
-        this.setLoadingState(true);
-        this.updateStatus('Processing...');
-        
-        try {
-            // Get options
-            const options = this.getOptions();
-            
-            // Check if humanizeString is available
-            if (typeof humanizeString === 'undefined') {
-                throw new Error('humanize-ai-lib not loaded');
-            }
-            
-            // Process text
-            const result = humanizeString(inputText, options);
-            
-            // Update output.
-            // NOTE: The previous word-by-word highlighter compared mismatched token arrays
-            // (because transformations can insert/remove characters), which caused nearly
-            // everything to be wrapped in <mark>. That made the output look "weird" even
-            // when the underlying transforms (hidden symbols/ellipsis/etc) were correct.
-            //
-            // Keep the output clean and readable by default.
-            this.elements.outputText.value = result.text;
-            this.elements.changeCount.textContent = result.count;
-            this.elements.outputCharCount.textContent = `${result.text.length} characters`;
-            
-            // Update changes indicator
-            if (result.count > 0) {
-                this.elements.changesIndicator.textContent = `${result.count} changes made`;
-                this.elements.changesIndicator.style.color = 'var(--color-success)';
-            } else {
-                this.elements.changesIndicator.textContent = 'No changes needed';
-                this.elements.changesIndicator.style.color = 'var(--color-text-muted)';
-            }
-            
-            this.updateStatus('Complete');
-            
-            if (!this.state.autoProcess) {
-                this.showToast(`Text processed successfully! ${result.count} changes made.`, 'success');
-            }
-            
-        } catch (error) {
-            console.error('Processing error:', error);
-            this.showToast('Error processing text. Please try again.', 'error');
-            this.updateStatus('Error');
-        } finally {
-            this.state.isProcessing = false;
-            this.setLoadingState(false);
-        }
-    }
-    
-    getOptions() {
-        const intensityPct = this.elements.spinIntensity ? Number(this.elements.spinIntensity.value || 0) : 0;
+/* ------------------------------ Utilities -------------------------------- */
 
-        return {
-            transformHidden: this.elements.transformHidden.checked,
-            transformTrailingWhitespace: this.elements.transformTrailingWhitespace.checked,
-            transformNbs: this.elements.transformNbs.checked,
-            transformDashes: this.elements.transformDashes.checked,
-            transformQuotes: this.elements.transformQuotes.checked,
-            transformOther: this.elements.transformOther.checked,
-            naturalVariations: this.elements.naturalVariations.checked,
-            keyboardOnly: this.elements.keyboardOnly.checked,
+const $ = (id) => document.getElementById(id);
 
-            // New
-            spinWords: this.elements.spinWords ? this.elements.spinWords.checked : false,
-            spinIntensity: intensityPct / 100
-        };
-    }
-    
-    clearInput() {
-        this.elements.inputText.value = '';
-        this.elements.outputText.value = '';
-        this.state.lastProcessedText = '';
-        this.updateStats();
-        this.elements.changesIndicator.textContent = '';
-        this.updateStatus('Ready');
-        this.elements.inputText.focus();
-        this.showToast('Input cleared', 'info');
-    }
-    
-    async pasteFromClipboard() {
-        try {
-            const text = await navigator.clipboard.readText();
-            if (text) {
-                this.elements.inputText.value = text;
-                this.updateStats();
-                if (this.state.autoProcess) {
-                    this.debounceProcess();
-                }
-                this.showToast('Text pasted from clipboard', 'success');
-            }
-        } catch (error) {
-            console.error('Paste error:', error);
-            this.showToast('Unable to paste from clipboard', 'error');
-        }
-    }
-    
-    async copyToClipboard() {
-        const outputText = (this.elements.outputText.value || '').trimEnd();
-
-        if (!outputText) {
-            this.showToast('No text to copy', 'error');
-            return;
-        }
-
-        try {
-            await navigator.clipboard.writeText(outputText);
-            this.showToast('Text copied to clipboard!', 'success');
-        } catch (error) {
-            console.error('Copy error:', error);
-            // Fallback for older browsers
-            this.elements.outputText.focus();
-            this.elements.outputText.select();
-            document.execCommand('copy');
-            this.showToast('Text copied to clipboard!', 'success');
-        }
-    }
-    
-    downloadResult() {
-        const outputText = (this.elements.outputText.value || '').trimEnd();
-
-        if (!outputText) {
-            this.showToast('No text to download', 'error');
-            return;
-        }
-
-        const blob = new Blob([outputText], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `devwyre-humanize-text-${new Date().toISOString().slice(0, 10)}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
-        this.showToast('Text file downloaded!', 'success');
-    }
-    
-    updateStats() {
-        const inputLength = this.elements.inputText.value.length;
-        this.elements.charCount.textContent = inputLength;
-        this.elements.inputCharCount.textContent = `${inputLength} characters`;
-        
-        if (inputLength === 0) {
-            this.elements.outputCharCount.textContent = '0 characters';
-            this.elements.changeCount.textContent = '0';
-            this.elements.changesIndicator.textContent = '';
-        }
-    }
-    
-    updateStatus(status) {
-        this.elements.status.textContent = status;
-    }
-    
-    setLoadingState(loading) {
-        if (loading) {
-            this.elements.humanizeBtn.classList.add('loading');
-            this.elements.humanizeBtn.disabled = true;
-        } else {
-            this.elements.humanizeBtn.classList.remove('loading');
-            this.elements.humanizeBtn.disabled = false;
-        }
-    }
-    
-    showToast(message, type = 'info') {
-        const maxLength = 50;
-        const displayMessage = message.length > maxLength
-            ? message.substring(0, maxLength) + '...'
-            : message;
-
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        toast.textContent = displayMessage;
-        
-        this.elements.toastContainer.appendChild(toast);
-        
-        // Auto remove after 3 seconds
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.style.animation = 'slideOut 0.25s ease-out forwards';
-                setTimeout(() => {
-                    if (toast.parentNode) {
-                        this.elements.toastContainer.removeChild(toast);
-                    }
-                }, 250);
-            }
-        }, 3000);
-    }
+function esc(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
 }
 
-// Utility functions for demo text
-const demoTexts = {
-    aiGenerated: `Welcome to our revolutionary platform! We're thrilled to announce that our cutting-edge AI technology has been meticulously designed to transform the way you approach content creation.
+function debounce(fn, ms) {
+    let timer = null;
+    return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), ms);
+    };
+}
 
-Our innovative solution leverages state-of-the-art algorithms to deliver unparalleled results that will exceed your expectations. With our comprehensive suite of tools, you'll be able to streamline your workflow and achieve remarkable outcomes.
+function countWords(text) {
+    const m = text.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu);
+    return m ? m.length : 0;
+}
 
-"This is absolutely game-changing," said one of our satisfied customers. "I've never seen anything quite like this before."
+function readingTimeMin(text) {
+    return Math.max(1, Math.ceil(countWords(text) / 200));
+}
 
-The platform offers:
+function tokenize(text) {
+    const parts = text.match(/\S+|\s+/g) || [];
+    return parts.map((p) => ({ text: p, ws: /^\s+$/.test(p) }));
+}
+
+/* LCS-based word diff -> segments of {text, type: 'same'|'add'|'del'}.
+   Non-space tokens only; whitespace is used purely as a joiner so insertions
+   and removals never corrupt alignment (the old approach's bug). */
+function diffWords(before, after) {
+    const a = tokenize(before);
+    const b = tokenize(after);
+    const maxCells = 4_000_000;
+
+    if (!a.length || !b.length) {
+        return [{ text: after, type: b.length ? 'same' : 'same' }];
+    }
+
+    // Fallback for very large inputs: keep it fast and approximate.
+    if (a.length * b.length > maxCells) {
+        return simpleIndexDiff(a, b);
+    }
+
+    const m = b.length;
+    const dp = new Uint32Array((a.length + 1) * (m + 1));
+
+    for (let i = a.length - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+            const cell = i * (m + 1) + j;
+            dp[cell] = (a[i].text === b[j].text)
+                ? dp[(i + 1) * (m + 1) + j + 1] + 1
+                : Math.max(dp[(i + 1) * (m + 1) + j], dp[i * (m + 1) + j + 1]);
+        }
+    }
+
+    const out = [];
+    let i = 0;
+    let j = 0;
+    while (i < a.length && j < m) {
+        if (a[i].text === b[j].text) {
+            out.push({ text: b[j].text, type: 'same' });
+            i++; j++;
+        } else if (dp[(i + 1) * (m + 1) + j] >= dp[i * (m + 1) + j + 1]) {
+            if (!a[i].ws) out.push({ text: a[i].text, type: 'del' });
+            i++;
+        } else {
+            if (!b[j].ws) out.push({ text: b[j].text, type: 'add' });
+            j++;
+        }
+    }
+    while (j < m) {
+        if (!b[j].ws) out.push({ text: b[j].text, type: 'add' });
+        j++;
+    }
+    return out;
+}
+
+function simpleIndexDiff(a, b) {
+    const out = [];
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+        if (a[i].text === b[i].text) {
+            out.push({ text: b[i].text, type: 'same' });
+        } else {
+            if (!a[i].ws) out.push({ text: a[i].text, type: 'del' });
+            if (!b[i].ws) out.push({ text: b[i].text, type: 'add' });
+        }
+    }
+    for (let i = n; i < b.length; i++) {
+        if (!b[i].ws) out.push({ text: b[i].text, type: 'add' });
+    }
+    return out;
+}
+
+function renderDiffHtml(segments) {
+    return segments.map((s) => {
+        if (s.type === 'add') return `<mark class="add">${esc(s.text)}</mark>`;
+        if (s.type === 'del') return `<del>${esc(s.text)}</del>`;
+        return esc(s.text);
+    }).join('');
+}
+
+/* ------------------------------ Demo data -------------------------------- */
+
+const DEMO_TEXTS = {
+    ai: `Welcome to our revolutionary platform! We're thrilled to announce that our cutting-edge AI technology has been meticulously designed to transform the way you approach content creation. Additionally, our innovative solution leverages state-of-the-art algorithms to deliver unparalleled results that will exceed your expectations.
+
+This means that, in order to streamline your workflow, you'll be able to achieve remarkable outcomes. "This is absolutely game-changing," said one of our satisfied customers. "I've never seen anything quite like this before."
+
+It is important to note that the platform offers:
 • Advanced machine learning capabilities
-• Seamless integration with existing systems  
+• Seamless integration with existing systems
 • Real-time analytics and insights...
 • 24/7 customer support
 
-Don't miss out on this incredible opportunity to revolutionize your business processes. Join thousands of satisfied customers who have already experienced the transformative power of our solution.`,
+In conclusion, don't miss out on this incredible opportunity to revolutionize your business processes. Furthermore, we are thrilled to announce that thousands of satisfied customers have already experienced the transformative power of our solution.`,
 
-    withMarkers: `"Smart quotes and em-dashes — these are common AI markers that make text look artificial," explained the researcher. 
-
+    markers: `"Smart quotes and em-dashes — these are common AI markers that make text look artificial," explained the researcher.
+ 
 The study found that AI-generated content often contains:
 • Fancy quotation marks "like these"
 • Em-dashes — instead of regular hyphens
 • Ellipsis symbols… rather than three dots
 • Non-breaking spaces and hidden Unicode characters
 • Trailing whitespace at line ends   
-
-"These subtle markers can be detected by both humans and algorithms," the expert noted. "Removing them makes text appear more natural and human-written."`
+ 
+"These subtle markers can be detected by both humans and algorithms," the expert noted. "Removing them makes text appear more natural and human-written."`,
 };
 
-// Add demo text functionality
-function addDemoTextButtons() {
-    // try to inject into dedicated action-section if present, else fall back to sidebar
-    let container = document.querySelector('.action-section');
-    if (!container) {
-        container = document.querySelector('.sidebar');
+/* -------------------------------- App ------------------------------------ */
+
+class HumanizerApp {
+    constructor() {
+        this.el = this.grabElements();
+        this.theme = document.documentElement.dataset.theme || 'light';
+        this.settings = this.loadSettings();
+        this.autoProcess = this.settings.autoProcess;
+        this.rawOutput = '';
+        this.history = [];
+        this.isProcessing = false;
+        this.diffCache = '';
+
+        this.applySettingsToUi();
+        this.applyTheme({
+            save: false,
+            animate: false,
+        });
+        this.bindEvents();
+        this.restoreDraft();
+        this.updateStats();
+        this.updateModeUi();
+        this.setStatus('Ready', 'idle');
+
+        if (typeof humanizeString === 'undefined') {
+            this.toast('Humanizer engine failed to load. Refresh the page.', 'error');
+        }
     }
-    if (!container) return;
-    
-    const demoSection = document.createElement('div');
-    demoSection.className = 'demo-section';
-    demoSection.style.marginTop = 'var(--spacing-lg)';
-    
-    const demoTitle = document.createElement('p');
-    demoTitle.textContent = 'Try with sample text:';
-    demoTitle.style.color = 'var(--color-text-muted)';
-    demoTitle.style.fontSize = '0.875rem';
-    demoTitle.style.marginBottom = 'var(--spacing-sm)';
-    
-    const buttonContainer = document.createElement('div');
-    buttonContainer.style.display = 'flex';
-    buttonContainer.style.gap = 'var(--spacing-sm)';
-    buttonContainer.style.justifyContent = 'center';
-    buttonContainer.style.flexWrap = 'wrap';
-    
-    // Create demo buttons
-    Object.entries(demoTexts).forEach(([key, text]) => {
-        const button = document.createElement('button');
-        button.textContent = key === 'aiGenerated' ? 'AI-Generated Text' : 'Text with Markers';
-        button.className = 'demo-btn';
-        button.style.cssText = `
-            padding: var(--spacing-sm) var(--spacing-md);
-            background: transparent;
-            border: 1px solid var(--color-border);
-            border-radius: var(--radius-md);
-            color: var(--color-text-muted);
-            font-size: 0.75rem;
-            cursor: pointer;
-            transition: all var(--transition-fast);
-        `;
-        
-        button.addEventListener('mouseenter', () => {
-            button.style.borderColor = 'var(--color-accent)';
-            button.style.color = 'var(--color-accent)';
+
+    grabElements() {
+        const ids = [
+            'themeToggle', 'status', 'statusChip', 'changesChip',
+            'resetOptions', 'humanizeBtn',
+            'optHidden', 'optWhitespace', 'optNbsp', 'optDashes', 'optQuotes',
+            'optEllipsis', 'optKeyboard', 'optNatural', 'optSpin',
+            'natIntensity', 'natIntensityVal', 'spinIntensity', 'spinIntensityVal',
+            'spinSliderRow', 'autoProcess',
+            'inputText', 'inputCharCount', 'inputWordBadge', 'inputReadTime',
+            'uploadBtn', 'fileInput', 'pasteInput', 'clearInput', 'dropZone',
+            'outputText', 'outputCharCount', 'outputWordBadge', 'outputSavedAt',
+            'copyResult', 'downloadResult', 'undoBtn',
+            'tidyView', 'plainView', 'diffView', 'outputEmpty',
+            'changesText', 'toastContainer', 'inputPanel',
+        ];
+        const els = {};
+        ids.forEach((id) => { els[camel(id)] = $(id); });
+        els.tabButtons = Array.from(document.querySelectorAll('.tab[data-tab]'));
+        els.viewButtons = Array.from(document.querySelectorAll('.seg-btn[data-view]'));
+        els.demoButtons = Array.from(document.querySelectorAll('.demo-btn[data-demo]'));
+        els.panels = {
+            cleanup: $('panel-cleanup'),
+            style: $('panel-style'),
+        };
+        return els;
+    }
+
+    /* ------------------------- Settings + theme ------------------------- */
+
+    loadSettings() {
+        try {
+            const raw = localStorage.getItem(STORE.settings);
+            if (raw) return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(raw));
+        } catch (e) { /* ignore */ }
+        return Object.assign({}, DEFAULT_SETTINGS);
+    }
+
+    saveSettings() {
+        try { localStorage.setItem(STORE.settings, JSON.stringify(this.settings)); } catch (e) { /* ignore */ }
+    }
+
+    applySettingsToUi() {
+        Object.entries(CHECKBOX_MAP).forEach(([id, key]) => {
+            $(id).checked = !!this.settings[key];
         });
-        
-        button.addEventListener('mouseleave', () => {
-            button.style.borderColor = 'var(--color-border)';
-            button.style.color = 'var(--color-text-muted)';
+        $('natIntensity').value = Math.round(this.settings.naturalIntensity * 100);
+        $('natIntensityVal').textContent = `${Math.round(this.settings.naturalIntensity * 100)}%`;
+        $('spinIntensity').value = Math.round(this.settings.spinIntensity * 100);
+        $('spinIntensityVal').textContent = `${Math.round(this.settings.spinIntensity * 100)}%`;
+        $('spinSliderRow').hidden = !this.settings.spinWords;
+        $('autoProcess').checked = this.settings.autoProcess;
+        this.setModeUi(this.settings.view);
+    }
+
+    applyTheme({ save = true, animate = true } = {}) {
+        document.documentElement.dataset.theme = this.theme;
+        if (animate) {
+            document.body.style.transition = 'background .3s ease';
+        }
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.content = this.theme === 'dark' ? '#07070B' : '#F4F5FA';
+        if (save) {
+            try { localStorage.setItem(STORE.theme, this.theme); } catch (e) { /* ignore */ }
+        }
+    }
+
+    toggleTheme() {
+        this.theme = this.theme === 'dark' ? 'light' : 'dark';
+        this.applyTheme();
+    }
+
+    /* ------------------------------ Events ------------------------------- */
+
+    bindEvents() {
+        this.el.themeToggle.addEventListener('click', () => this.toggleTheme());
+
+        this.el.tabButtons.forEach((btn) => {
+            btn.addEventListener('click', () => this.activateTab(btn.dataset.tab));
         });
-        
-        button.addEventListener('click', () => {
-            const inputText = document.getElementById('inputText');
-            if (inputText) {
-                inputText.value = text;
-                inputText.dispatchEvent(new Event('input'));
-                inputText.focus();
+
+        this.el.viewButtons.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                this.settings.view = btn.dataset.view;
+                this.setModeUi(this.settings.view);
+                this.saveSettings();
+            });
+        });
+
+        Object.entries(CHECKBOX_MAP).forEach(([id, key]) => {
+            $(id).addEventListener('change', (e) => {
+                this.settings[key] = e.target.checked;
+                if (id === 'optSpin') {
+                    $('spinSliderRow').hidden = !e.target.checked;
+                }
+                this.saveSettings();
+                this.onSettingsChange();
+            });
+        });
+
+        const bindSlider = (id, key, valId) => {
+            $(id).addEventListener('input', () => {
+                const pct = Number($(id).value);
+                $(valId).textContent = `${pct}%`;
+                this.settings[key] = pct / 100;
+            });
+            $(id).addEventListener('change', () => {
+                this.saveSettings();
+                this.onSettingsChange();
+            });
+        };
+        bindSlider('natIntensity', 'naturalIntensity', 'natIntensityVal');
+        bindSlider('spinIntensity', 'spinIntensity', 'spinIntensityVal');
+
+        this.el.autoProcess.addEventListener('change', (e) => {
+            this.autoProcess = e.target.checked;
+            this.settings.autoProcess = e.target.checked;
+            this.saveSettings();
+            if (this.autoProcess && this.el.inputText.value.trim()) {
+                this.scheduleProcess();
+            } else if (!this.autoProcess) {
+                this.setStatus('Manual', 'idle');
             }
         });
-        
-        buttonContainer.appendChild(button);
-    });
-    
-    demoSection.appendChild(demoTitle);
-    demoSection.appendChild(buttonContainer);
-    actionSection.appendChild(demoSection);
-}
 
-// Add slideOut animation to CSS
-const style = document.createElement('style');
-style.textContent = `
-@keyframes slideOut {
-    to {
-        transform: translateX(100%);
-        opacity: 0;
+        this.el.resetOptions.addEventListener('click', () => this.resetSettings());
+
+        // Input events
+        this.el.inputText.addEventListener('input', () => {
+            this.updateStats();
+            this.saveDraft();
+            if (this.autoProcess) this.scheduleProcess();
+            else this.invalidateOutput();
+        });
+        this.el.inputText.addEventListener('paste', () => {
+            setTimeout(() => {
+                this.updateStats();
+                this.saveDraft();
+                if (this.autoProcess) this.scheduleProcess();
+            }, 10);
+        });
+
+        // Action buttons
+        this.el.humanizeBtn.addEventListener('click', () => this.processText());
+        this.el.clearInput.addEventListener('click', () => this.clearInput());
+        this.el.pasteInput.addEventListener('click', () => this.pasteFromClipboard());
+        this.el.uploadBtn.addEventListener('click', () => this.el.fileInput.click());
+        this.el.fileInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) this.loadFile(file);
+            e.target.value = '';
+        });
+        this.el.copyResult.addEventListener('click', () => this.copyResult());
+        this.el.downloadResult.addEventListener('click', () => this.downloadResult());
+        this.el.undoBtn.addEventListener('click', () => this.undo());
+
+        this.el.demoButtons.forEach((btn) => {
+            btn.addEventListener('click', () => this.loadDemo(btn.dataset.demo));
+        });
+
+        // Drag & drop
+        ['dragenter', 'dragover'].forEach((ev) => {
+            this.el.dropZone.addEventListener(ev, (e) => {
+                e.preventDefault();
+                this.el.inputPanel.classList.add('is-dragover');
+            });
+        });
+        ['dragleave', 'drop'].forEach((ev) => {
+            this.el.dropZone.addEventListener(ev, (e) => {
+                e.preventDefault();
+                this.el.inputPanel.classList.remove('is-dragover');
+            });
+        });
+        this.el.dropZone.addEventListener('drop', (e) => {
+            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (file && /\.(txt|md|text)$/i.test(file.name)) {
+                this.loadFile(file);
+            } else if (file) {
+                this.toast('Please drop a .txt or .md file', 'error');
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (!(e.ctrlKey || e.metaKey)) return;
+            const k = e.key.toLowerCase();
+            if (k === 'enter') {
+                e.preventDefault();
+                this.processText();
+            } else if (k === 'k') {
+                e.preventDefault();
+                this.clearInput();
+            } else if (k === 'd' && e.shiftKey) {
+                e.preventDefault();
+                this.downloadResult();
+            }
+        });
+    }
+
+    activateTab(name) {
+        this.el.tabButtons.forEach((b) => {
+            const active = b.dataset.tab === name;
+            b.classList.toggle('is-active', active);
+            b.setAttribute('aria-selected', String(active));
+        });
+        Object.entries(this.el.panels).forEach(([key, panel]) => {
+            panel.hidden = key !== name;
+            panel.classList.toggle('is-active', key === name);
+        });
+    }
+
+    onSettingsChange() {
+        if (!this.el.inputText.value.trim()) return;
+        if (this.autoProcess) {
+            this.scheduleProcess();
+        } else {
+            this.processText();
+        }
+    }
+
+    invalidateOutput() {
+        this.rawOutput = '';
+        this.el.outputText.value = '';
+        this.diffCache = '';
+        this.renderOutputViews();
+        this.el.changesText.textContent = 'No changes yet';
+        this.el.changesText.classList.remove('has-changes');
+        $('outputWordBadge').textContent = '0 words';
+        $('outputCharCount').textContent = '0 characters';
+        $('outputSavedAt').textContent = 'Not processed';
+        this.el.outputEmpty.hidden = !this.rawOutput;
+    }
+
+    resetSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS);
+        this.autoProcess = this.settings.autoProcess;
+        this.applySettingsToUi();
+        this.saveSettings();
+        this.toast('Settings restored to defaults', 'info');
+        if (this.el.inputText.value.trim()) {
+            this.scheduleProcess();
+        }
+    }
+
+    /* --------------------------- Draft storage --------------------------- */
+
+    restoreDraft() {
+        try {
+            const draft = localStorage.getItem(STORE.draft);
+            if (draft) {
+                this.el.inputText.value = draft;
+                this.updateStats();
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    saveDraft() {
+        try { localStorage.setItem(STORE.draft, this.el.inputText.value); } catch (e) { /* ignore */ }
+    }
+
+    /* ------------------------------ Processing ----------------------------- */
+
+    scheduleProcess() {
+        if (this.scheduleTimer) clearTimeout(this.scheduleTimer);
+        this.scheduleTimer = setTimeout(() => this.processText(), 450);
+    }
+
+    processText() {
+        const raw = this.el.inputText.value;
+        if (!raw.trim()) {
+            this.toast('Nothing to humanize — paste some text first', 'error');
+            return;
+        }
+        if (this.isProcessing) return;
+
+        this.isProcessing = true;
+        this.setBusy(true);
+        this.setStatus('Processing…', 'busy');
+
+        try {
+            const result = humanizeString(raw, this.buildOptions());
+            this.rawOutput = result.text;
+            this.diffCache = '';
+
+            $('changesChip').textContent = `${result.count} change${result.count === 1 ? '' : 's'}`;
+            this.el.changesText.textContent =
+                result.count ? `${result.count} changes made` : 'No humanizing needed';
+            this.el.changesText.classList.toggle('has-changes', result.count > 0);
+
+            this.renderOutputViews();
+            $('outputWordBadge').textContent = `${countWords(result.text)} words`;
+            $('outputCharCount').textContent = `${result.text.length} characters`;
+            $('outputSavedAt').textContent =
+                `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+            this.pushHistory();
+            this.setStatus(result.count ? 'Complete' : 'Clean', 'done');
+        } catch (err) {
+            console.error('Processing error:', err);
+            this.setStatus('Error', 'error');
+            this.toast('Something went wrong while processing. Try again.', 'error');
+        } finally {
+            this.isProcessing = false;
+            this.setBusy(false);
+        }
+    }
+
+    buildOptions() {
+        return {
+            transformHidden: this.settings.transformHidden,
+            transformTrailingWhitespace: this.settings.transformTrailingWhitespace,
+            transformNbs: this.settings.transformNbs,
+            transformDashes: this.settings.transformDashes,
+            transformQuotes: this.settings.transformQuotes,
+            transformOther: this.settings.transformOther,
+            keyboardOnly: this.settings.keyboardOnly,
+            naturalVariations: this.settings.naturalVariations,
+            naturalIntensity: this.settings.naturalIntensity,
+            spinWords: this.settings.spinWords,
+            spinIntensity: this.settings.spinIntensity,
+            removeWatermarks: this.settings.removeWatermarks,
+        };
+    }
+
+    renderOutputViews() {
+        this.el.outputText.value = this.rawOutput;
+        this.el.outputEmpty.hidden = !!this.rawOutput;
+        if (this.rawOutput) {
+            const input = this.el.inputText.value;
+            this.diffCache = renderDiffHtml(diffWords(input, this.rawOutput));
+            $('diffView').innerHTML = this.diffCache;
+        } else {
+            $('diffView').innerHTML = '';
+        }
+    }
+
+    pushHistory() {
+        this.history.push(this.rawOutput);
+        if (this.history.length > MAX_HISTORY) this.history.shift();
+    }
+
+    undo() {
+        const prev = this.history.pop();
+        if (!prev) {
+            this.toast('Nothing to undo', 'info');
+            return;
+        }
+        this.rawOutput = prev;
+        this.renderOutputViews();
+        this.toast('Restored previous result', 'info');
+    }
+
+    setBusy(busy) {
+        this.el.humanizeBtn.classList.toggle('loading', busy);
+        this.el.humanizeBtn.disabled = busy;
+    }
+
+    setStatus(text, state) {
+        $('status').textContent = text;
+        this.el.statusChip.classList.remove('is-busy', 'is-done', 'is-error');
+        if (state === 'busy') this.el.statusChip.classList.add('is-busy');
+        if (state === 'done') this.el.statusChip.classList.add('is-done');
+        if (state === 'error') this.el.statusChip.classList.add('is-error');
+    }
+
+    /* ------------------------------ View modes ----------------------------- */
+
+    setModeUi(view) {
+        this.el.viewButtons.forEach((b) => {
+            b.classList.toggle('is-active', b.dataset.view === view);
+        });
+        const tidy = view === 'tidy';
+        $('tidyView').hidden = !tidy;
+        $('plainView').hidden = tidy;
+    }
+
+    updateModeUi() {
+        this.setModeUi(this.settings.view);
+    }
+
+    /* ------------------------------ Stats --------------------------------- */
+
+    updateStats() {
+        const text = this.el.inputText.value;
+        const words = countWords(text);
+        $('inputCharCount').textContent = `${text.length} characters`;
+        $('inputWordBadge').textContent = `${words} ${words === 1 ? 'word' : 'words'}`;
+        $('inputReadTime').textContent = text.trim()
+            ? `${readingTimeMin(text)} min read`
+            : '0 min read';
+    }
+
+    /* --------------------------- Clipboard & files ------------------------- */
+
+    async pasteFromClipboard() {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text) { this.toast('Clipboard is empty', 'error'); return; }
+            this.el.inputText.value = text;
+            this.updateStats();
+            this.saveDraft();
+            if (this.autoProcess) this.scheduleProcess();
+            this.toast('Pasted from clipboard', 'success');
+        } catch (err) {
+            this.toast('Clipboard access denied', 'error');
+        }
+    }
+
+    loadFile(file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+            this.el.inputText.value = String(reader.result || '');
+            this.updateStats();
+            this.saveDraft();
+            if (this.autoProcess) this.scheduleProcess();
+            this.toast(`Loaded ${file.name}`, 'success');
+        };
+        reader.onerror = () => this.toast('Could not read that file', 'error');
+        reader.readAsText(file);
+    }
+
+    async copyResult() {
+        if (!this.rawOutput) {
+            this.toast('Nothing to copy yet', 'error');
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(this.rawOutput);
+            this.toast('Result copied to clipboard', 'success');
+        } catch (err) {
+            $('outputText').select();
+            document.execCommand('copy');
+            this.toast('Result copied to clipboard', 'success');
+        }
+    }
+
+    downloadResult() {
+        if (!this.rawOutput) {
+            this.toast('Nothing to download yet', 'error');
+            return;
+        }
+        const blob = new Blob([this.rawOutput], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `humanized-${new Date().toISOString().slice(0, 10)}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        this.toast('Downloaded as .txt', 'success');
+    }
+
+    clearInput() {
+        this.el.inputText.value = '';
+        this.history = [];
+        this.rawOutput = '';
+        this.saveDraft();
+        this.invalidateOutput();
+        this.updateStats();
+        this.setStatus('Ready', 'idle');
+        $('changesChip').textContent = '0 changes';
+        $('outputSavedAt').textContent = 'Not processed';
+        this.el.inputText.focus();
+        this.toast('Input cleared', 'info');
+    }
+
+    loadDemo(key) {
+        const text = DEMO_TEXTS[key];
+        if (!text) return;
+        this.el.inputText.value = text;
+        this.updateStats();
+        this.saveDraft();
+        if (this.autoProcess) {
+            this.processText();
+        }
+        this.el.inputText.focus();
+    }
+
+    /* ------------------------------- Toasts -------------------------------- */
+
+    toast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `<span class="toast-icon">${ICONS[type] || ICONS.info}</span><span></span>`;
+        toast.lastElementChild.textContent = message;
+        this.el.toastContainer.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.add('leaving');
+            toast.addEventListener('animationend', () => {
+                if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, { once: true });
+        }, 3200);
     }
 }
-`;
-document.head.appendChild(style);
 
-// Initialize the application when DOM is loaded
+function camel(str) {
+    return str.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize main application
-    const app = new TextHumanizer();
-    
-    // Add demo text buttons
-    addDemoTextButtons();
-    
-    // Add some initial guidance
+    const app = new HumanizerApp();
+    window.humanizerApp = app;
+
     setTimeout(() => {
-        app.showToast('Welcome to DevWyre\'s Humanizer');
-    }, 1000);
-    
-    // Make app globally available for debugging
-    window.textHumanizer = app;
+        app.toast('Welcome to DevWyre Humanizer', 'info');
+    }, 600);
 });
